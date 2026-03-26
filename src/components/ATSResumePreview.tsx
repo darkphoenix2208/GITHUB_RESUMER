@@ -1,9 +1,11 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
+import ATSScorePanel from "@/components/ATSScorePanel";
 
 interface ATSResumePreviewProps {
   latex: string;
+  jd?: string;
   onLatexChange: (val: string) => void;
 }
 
@@ -87,7 +89,7 @@ function BulletWithPlaceholders({
   );
 }
 
-export default function ATSResumePreview({ latex, onLatexChange }: ATSResumePreviewProps) {
+export default function ATSResumePreview({ latex, jd, onLatexChange }: ATSResumePreviewProps) {
   const [viewMode, setViewMode] = useState<"visual" | "raw">("visual");
   const [copied, setCopied] = useState(false);
   const sections = parseLatexToSections(latex);
@@ -204,6 +206,9 @@ export default function ATSResumePreview({ latex, onLatexChange }: ATSResumePrev
           </div>
         )}
       </div>
+
+      {/* ATS Score Panel — shown below preview */}
+      {latex && <ATSScorePanel latex={latex} jd={jd || ""} />}
     </div>
   );
 }

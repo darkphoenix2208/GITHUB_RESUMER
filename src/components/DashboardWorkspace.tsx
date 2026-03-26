@@ -35,6 +35,29 @@ export default function DashboardWorkspace({ repos }: { repos: any[] }) {
   const [enrichedRepos, setEnrichedRepos] = useState<any[]>([]);
   const [terminalMode, setTerminalMode] = useState(false);
   const [interviewRepo, setInterviewRepo] = useState<any | null>(null);
+  // Competitive Programming
+  const [cfHandle, setCfHandle] = useState("");
+  const [lcHandle, setLcHandle] = useState("");
+  const [cpData, setCpData] = useState<any>(null);
+  const [cpLoading, setCpLoading] = useState(false);
+
+  async function fetchCPProfile() {
+    if (!cfHandle && !lcHandle) return;
+    setCpLoading(true);
+    try {
+      const res = await fetch("/api/cp-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cfHandle, lcHandle }),
+      });
+      const data = await res.json();
+      setCpData(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCpLoading(false);
+    }
+  }
 
   async function handleScore(e: React.FormEvent) {
     e.preventDefault();
@@ -64,7 +87,9 @@ export default function DashboardWorkspace({ repos }: { repos: any[] }) {
     setPhase("generating");
     try {
       const res = await generateForSelected(jd, scoredRepos, Array.from(selectedNames));
-      setLatex(res.latex);
+      // Inject CP section if it qualifies
+      const cpSection = cpData?.cpLatex ? `\n\n${cpData.cpLatex}` : "";
+      setLatex(res.latex + cpSection);
       setEnrichedRepos(res.enrichedRepos);
       setPhase("done");
     } catch (err: any) {
@@ -105,6 +130,7 @@ export default function DashboardWorkspace({ repos }: { repos: any[] }) {
               <div className={`w-2 h-2 rounded-full animate-pulse ${terminalMode ? "bg-green-400" : "bg-emerald-400 shadow-lg shadow-emerald-400/50"}`} />
               <span className={`text-xs font-bold tracking-widest uppercase ${terminalMode ? "text-green-400 font-mono" : "text-zinc-400"}`}>Controls</span>
             </div>
+            <div className="flex items-center gap-2">
             <button
               onClick={() => setTerminalMode(!terminalMode)}
               className={`flex items-center gap-1.5 text-xs px-3 py-1 rounded-lg border transition-all font-mono ${terminalMode ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-zinc-800 border-white/5 text-zinc-400 hover:text-white"}`}
@@ -112,6 +138,7 @@ export default function DashboardWorkspace({ repos }: { repos: any[] }) {
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
               {terminalMode ? "GUI" : "Terminal"}
             </button>
+            </div>
           </div>
 
           {/* JD Input */}
@@ -304,7 +331,7 @@ export default function DashboardWorkspace({ repos }: { repos: any[] }) {
 
           <div className="flex-1 overflow-hidden">
             {latex ? (
-              <ATSResumePreview latex={latex} onLatexChange={setLatex} />
+              <ATSResumePreview latex={latex} jd={jd} onLatexChange={setLatex} />
             ) : (
               <div className={`flex flex-col items-center justify-center h-full text-center p-8 ${terminalMode ? "bg-black" : ""}`}>
                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-5 ${terminalMode ? "border border-green-500/20" : "bg-white/[0.02] border border-white/5"}`}>
