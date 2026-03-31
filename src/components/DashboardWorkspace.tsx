@@ -319,6 +319,22 @@ export default function DashboardWorkspace({ repos }: { repos: any[] }) {
                   </div>
                 ))}
               </div>
+              <div className="mt-4">
+                <button
+                  onClick={() => {
+                    localStorage.setItem('portfolioData', JSON.stringify({ repos: enrichedRepos }));
+                    window.open('/portfolio', '_blank');
+                  }}
+                  className={`w-full py-2.5 text-xs font-bold uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 ${
+                    isBloomberg ? "bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/20 font-mono"
+                    : isTerminal ? "bg-green-500 hover:bg-green-400 text-black shadow-lg shadow-green-500/20 font-mono"
+                    : "bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20"
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  Launch Interactive Portfolio
+                </button>
+              </div>
             </div>
           )}
 
