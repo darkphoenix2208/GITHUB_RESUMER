@@ -128,3 +128,69 @@
     @apply font-sans;
   }
 }
+
+/* ── Multi-Theme System ──────────────────────────────────────────────────────── */
+
+/* Liquid Glass (Default) — modern dark with emerald glow */
+[data-theme="glass"] {
+  --theme-bg: #09090b;
+  --theme-surface: rgba(24, 24, 27, 0.8);
+  --theme-border: rgba(255, 255, 255, 0.05);
+  --theme-accent: #10b981;
+  --theme-accent-glow: rgba(16, 185, 129, 0.2);
+  --theme-text-primary: #f4f4f5;
+  --theme-text-secondary: #71717a;
+  --theme-text-muted: #3f3f46;
+  --theme-mono-font: 'Geist Mono', monospace;
+  --theme-header-bg: rgba(24, 24, 27, 0.9);
+}
+
+/* Terminal — retro green monospace */
+[data-theme="terminal"] {
+  --theme-bg: #000000;
+  --theme-surface: #000000;
+  --theme-border: rgba(34, 197, 94, 0.15);
+  --theme-accent: #22c55e;
+  --theme-accent-glow: rgba(34, 197, 94, 0.15);
+  --theme-text-primary: #4ade80;
+  --theme-text-secondary: #16a34a;
+  --theme-text-muted: #14532d;
+  --theme-mono-font: 'Courier New', Courier, monospace;
+  --theme-header-bg: #000000;
+}
+
+/* Bloomberg Terminal — iconic black-and-amber, data-dense */
+[data-theme="bloomberg"] {
+  --theme-bg: #000000;
+  --theme-surface: #0a0800;
+  --theme-border: rgba(245, 158, 11, 0.2);
+  --theme-accent: #f59e0b;
+  --theme-accent-glow: rgba(245, 158, 11, 0.15);
+  --theme-text-primary: #fbbf24;
+  --theme-text-secondary: #d97706;
+  --theme-text-muted: #78350f;
+  --theme-mono-font: 'Courier New', Courier, monospace;
+  --theme-header-bg: #000000;
+}
+
+/* Bloomberg specific accents */
+[data-theme="bloomberg"] body {
+  background-color: #000;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+[data-theme="bloomberg"] ::selection {
+  background: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+[data-theme="terminal"] ::selection {
+  background: rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+}
+
+/* Scrollbar theming */
+[data-theme="bloomberg"] ::-webkit-scrollbar-thumb { background: #78350f; }
+[data-theme="bloomberg"] ::-webkit-scrollbar-track  { background: #000; }
+[data-theme="terminal"]  ::-webkit-scrollbar-thumb  { background: #14532d; }
+[data-theme="terminal"]  ::-webkit-scrollbar-track  { background: #000; }

@@ -124,21 +124,45 @@ Return ONLY raw LaTeX. No markdown fences.`;
 
   let draftText = draft.choices[0]?.message?.content || "";
 
-  // ── PASS 2: Humanization ─────────────────────────────────────────────────
-  // Replace AI filler with authentic ownership verbs
-  const pass2Prompt = `You are a professional resume editor with 15 years of experience.
+  // ── PASS 2: Ownership-First Humanization ─────────────────────────────────
+  // "Senior Engineer Reviewer" persona — eliminates ATS-flagged AI filler,
+  // injects specific architectural context from the detected power signals.
+  const powerSignalContext = matchedRepos
+    .flatMap((r: any) => r.metrics?.powerSignals || [])
+    .filter(Boolean)
+    .slice(0, 12)
+    .map((s: string) => `  • ${s}`)
+    .join("\n");
 
-Below is a LaTeX resume draft that may contain AI-sounding filler words.
+  const pass2Prompt = `You are a Staff-level Engineering Resume Reviewer with 15 years of experience at FAANG and HFT firms.
 
-Your task:
-1. Replace weak/AI filler verbs with strong ownership verbs from this list:
-   - REPLACE: "leveraged", "utilized", "spearheaded", "pioneered", "facilitated", "ensured", "streamlined"
-   - WITH: "architected", "built", "engineered", "optimized", "shipped", "eliminated", "reduced", "fixed", "wrote", "designed"
-2. Ensure every bullet starts with a past-tense action verb.
-3. Keep ALL LaTeX syntax exactly intact. Do NOT add or remove \\resumeItem, \\resumeSubheading, or any braces.
-4. Return ONLY the corrected LaTeX. No explanations, no markdown.
+You have been handed a DRAFT LaTeX resume that was written by an AI. Your job is to make it sound like it was written by a senior engineer who personally built all of this.
 
-Draft:
+=== STRICT BAN LIST — remove every instance of these words ===
+leveraged, utilized, spearheaded, pioneered, facilitated, ensured, streamlined,
+synergized, maximized, enabled, empowered, harnessed, employed, implemented (when describing your own code — replace with what you actually did)
+
+=== OWNERSHIP VERB REPLACEMENTS ===
+Instead of vague filler, use verbs that show personal ownership:
+• "built", "wrote", "engineered", "architected", "designed", "shipped"
+• "eliminated", "reduced", "fixed", "optimized", "profiled", "debugged"
+• "scaled", "migrated", "refactored", "benchmarked", "integrated"
+
+=== ARCHITECTURAL CONTEXT TO INJECT ===
+The code scanner found these specific technical patterns in the actual source code.
+Where relevant, REFERENCE THEM BY NAME in the bullets — this proves technical authenticity:
+${powerSignalContext || "  • No advanced patterns detected"}
+
+=== YOUR REWRITE RULES ===
+1. Every bullet MUST start with a past-tense ownership verb (never a noun or article).
+2. At least one bullet per project MUST reference a specific technical mechanism (algorithm, protocol, data structure, or pattern).
+3. Numbers and metrics in [brackets] must be preserved exactly — do not remove them.
+4. Remove any bullet that starts with "Utilized", "Leveraged", or "Spearheaded" and rewrite it entirely.
+5. Keep ALL LaTeX macros intact: \\resumeItem{}, \\resumeSubheading{}, \\resumeItemListStart, \\resumeItemListEnd.
+6. Do NOT add new \\resumeItem entries. Do NOT delete existing ones.
+7. Return ONLY the corrected LaTeX — no explanations, no markdown fences, no commentary.
+
+DRAFT TO REVIEW:
 ${draftText}`;
 
   const humanized = await groq.chat.completions.create({

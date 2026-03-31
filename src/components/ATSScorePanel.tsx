@@ -24,7 +24,7 @@ function latexToPlainText(latex: string): string {
     .replace(/\\href\{[^}]*\}\{([^}]*)\}/g, "$1")
     // Remove remaining LaTeX commands (with or without args)
     .replace(/\\[a-zA-Z]+\{[^}]*\}/g, " ")
-    .replace(/\\[a-zA-Z]+\*/?\s*/g, " ")
+    .replace(/\\[a-zA-Z]+[*]?\s*/g, " ")
     // Remove special chars
     .replace(/[{}\\%$&~^_]/g, " ")
     .replace(/\s+/g, " ")

@@ -18,6 +18,9 @@ export interface CodeMetrics {
   hasTests: boolean;
   powerSignals: string[];
   grade: "A" | "B" | "C" | "D";
+  // COCOMO II
+  cocomoEffort: number;    // person-months (1 dp)
+  estimatedValue: number;  // USD
 }
 
 // ── POWER SIGNAL PATTERNS — "Quant-Depth" Edition ────────────────────────────
@@ -154,6 +157,18 @@ function calcMI(hv: number, cc: number, loc: number): number {
   return Math.max(0, Math.min(100, raw));
 }
 
+// ── COCOMO II — Semi-detached model ───────────────────────────────────────────
+// PM = 2.94 × (SLOC_k)^1.17     (person-months)
+// USD = PM × $8,500              (blended eng. salary rate)
+function calcCOCOMO(loc: number): { effort: number; value: number } {
+  const slocK = Math.max(loc, 1) / 1000;
+  const pm = 2.94 * Math.pow(slocK, 1.17);
+  return {
+    effort: Math.round(pm * 10) / 10,
+    value:  Math.round(pm * 8500),
+  };
+}
+
 function miGrade(mi: number): "A" | "B" | "C" | "D" {
   if (mi >= 75) return "A";
   if (mi >= 55) return "B";
@@ -187,11 +202,12 @@ function detectTests(arch: string[]): boolean {
 // ── MAIN EXPORT ────────────────────────────────────────────────────────────────
 export function analyzeRepo(repo: { codeSnippets: string[]; architecture: string[] }): CodeMetrics {
   const allCode = repo.codeSnippets.join("\n");
-  const cc   = calcCyclomaticComplexity(allCode);
-  const loc  = calcLOC(allCode);
-  const hv   = calcHalsteadVolume(allCode);
-  const mi   = calcMI(hv, cc, loc);
-  const doc  = calcDocRatio(allCode);
+  const cc       = calcCyclomaticComplexity(allCode);
+  const loc      = calcLOC(allCode);
+  const hv       = calcHalsteadVolume(allCode);
+  const mi       = calcMI(hv, cc, loc);
+  const doc      = calcDocRatio(allCode);
+  const cocomo   = calcCOCOMO(loc);
   return {
     cyclomaticComplexity: Math.round(cc),
     halsteadVolume:       Math.round(hv),
@@ -200,6 +216,14 @@ export function analyzeRepo(repo: { codeSnippets: string[]; architecture: string
     docRatio:    Math.round(doc * 100) / 100,
     hasTests:    detectTests(repo.architecture),
     powerSignals: scanPowerSignals(repo.codeSnippets),
-    grade: miGrade(mi),
+    grade:        miGrade(mi),
+    cocomoEffort: cocomo.effort,
+    estimatedValue: cocomo.value,
   };
+}
+
+// HFT signal density helper — used by ThemeProvider auto-detect
+export function countHFTSignals(powerSignals: string[]): number {
+  const hftTerms = ["lock-free", "CAS", "atomic", "mmap", "epoll", "io_uring", "SIMD", "socket", "CUDA", "memory order"];
+  return powerSignals.filter(s => hftTerms.some(t => s.toLowerCase().includes(t.toLowerCase()))).length;
 }
