@@ -48,27 +48,46 @@ function complexityBonus(repo: any): number {
 }
 
 // Phase 2: RAG Matching — returns ALL repos ranked by combined score
-// (70% semantic similarity + 30% complexity signal)
+// 80% semantic similarity + 20% complexity signal (weighted blend)
 export async function matchRepositories(jd: string, repos: any[]) {
   const jdEmbedding = await getEmbedding(jd);
 
   const reposWithScores = await Promise.all(
     repos.map(async (repo) => {
-      // Build context — architecture may be empty at basic-fetch stage, that's fine
+      // Build richer context for embedding — more text = better semantic matching
+      const descPart = repo.description ? `Description: ${repo.description}` : "";
+      const langPart = Object.keys(repo.languages || {}).length > 0
+        ? `Technologies: ${Object.keys(repo.languages || {}).join(", ")}`
+        : "";
+      // Truncate README to avoid embedding overload but keep enough for topic detection
+      const readmePart = repo.readme
+        ? `README highlights: ${repo.readme.slice(0, 1500)}`
+        : "";
+
       const repoContext = [
-        `Repository: ${repo.name}`,
-        repo.description ? `Description: ${repo.description}` : "",
-        `Languages: ${Object.keys(repo.languages || {}).join(", ")}`,
-        repo.readme ? `README: ${repo.readme}` : "",
+        `Project: ${repo.name}`,
+        descPart,
+        langPart,
+        readmePart,
       ].filter(Boolean).join("\n");
 
       const repoEmbedding = await getEmbedding(repoContext);
       const semanticScore = cosineSimilarity(jdEmbedding, repoEmbedding);
       const bonus = complexityBonus(repo);
-      // Combined score: semantic is primary signal, bonus adjusts ranking
-      const combinedScore = semanticScore + bonus;
 
-      return { ...repo, score: combinedScore, semanticScore, complexityBonus: bonus };
+      // Weighted blend: semantic is primary, complexity adjusts
+      // Clamp to [0, 1] range for cleaner display
+      const combinedScore = Math.min(
+        Math.max(semanticScore * 0.80 + (0.5 + bonus) * 0.20, 0),
+        1
+      );
+
+      return {
+        ...repo,
+        score: combinedScore,
+        semanticScore,
+        complexityBonus: bonus,
+      };
     })
   );
 

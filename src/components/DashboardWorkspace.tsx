@@ -16,14 +16,18 @@ const gradeColor: Record<string, string> = {
 };
 
 function ScoreBar({ score }: { score: number }) {
-  const pct = Math.min(Math.max((score - 0.2) / 0.65, 0), 1) * 100;
-  const color = pct > 65 ? "bg-emerald-400" : pct > 40 ? "bg-yellow-400" : "bg-red-400";
+  // Convert raw cosine similarity (typically 0.3-0.9) to a 0-100 user-friendly percentage
+  // Scores below 0.3 = 0%, scores above 0.85 = 100%
+  const pct = Math.min(Math.max(Math.round(((score - 0.3) / 0.55) * 100), 0), 100);
+  const color = pct >= 70 ? "bg-emerald-400" : pct >= 45 ? "bg-yellow-400" : pct >= 25 ? "bg-orange-400" : "bg-red-400";
+  const grade = pct >= 70 ? "A" : pct >= 50 ? "B" : pct >= 30 ? "C" : "D";
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-[10px] font-mono text-zinc-400 w-10 text-right">{score.toFixed(3)}</span>
+      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border font-mono ${gradeColor[grade]}`}>{grade}</span>
+      <span className="text-[10px] font-mono text-zinc-500 w-8 text-right">{pct}%</span>
     </div>
   );
 }
@@ -73,9 +77,10 @@ export default function DashboardWorkspace({ repos }: { repos: any[] }) {
     try {
       const ranked = await scoreRepositories(jd, repos);
       setScoredRepos(ranked);
+      // Auto-select top repos with decent match & non-trivial complexity
       const autoSelect = ranked
-        .filter((r: any) => r.score > 0.4 && r.complexityBonus >= 0)
-        .slice(0, 3)
+        .filter((r: any) => r.score > 0.45 && r.complexityBonus >= 0)
+        .slice(0, 4)
         .map((r: any) => r.name);
       setSelectedNames(new Set(autoSelect));
       setPhase("selecting");
@@ -305,8 +310,8 @@ export default function DashboardWorkspace({ repos }: { repos: any[] }) {
                                     <span className={`text-[9px] px-1.5 py-0.5 rounded border font-mono ${isDark ? `${cls.border} ${cls.accent} opacity-60` : "bg-zinc-800 border-white/5 text-zinc-500"}`}>{repo.primaryLanguage}</span>
                                   )}
                                   {repo.score > 0 && (
-                                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full border font-mono ${repo.complexityBonus > 0 ? "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" : "text-red-400 border-red-500/20 bg-red-500/5"}`}>
-                                      {repo.complexityBonus > 0 ? `+${repo.complexityBonus.toFixed(3)}` : repo.complexityBonus.toFixed(3)} weight
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full border font-mono ${repo.complexityBonus > 0 ? "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" : repo.complexityBonus < -0.05 ? "text-red-400 border-red-500/20 bg-red-500/5" : "text-zinc-400 border-zinc-500/20 bg-zinc-500/5"}`}>
+                                      {repo.complexityBonus > 0 ? `+${(repo.complexityBonus * 100).toFixed(0)}` : (repo.complexityBonus * 100).toFixed(0)} complexity
                                     </span>
                                   )}
                                   {metrics?.grade && (
