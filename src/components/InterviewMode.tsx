@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useWhisper } from "@/hooks/useWhisper";
 
 interface InterviewModeProps {
   repo: any;
@@ -22,62 +23,6 @@ const overallBg = (overall: string) => {
   return "bg-red-500/10 border-red-500/30 text-red-300";
 };
 
-// ── Web Speech API hook ────────────────────────────────────────────────────────
-function useSpeechRecognition(onTranscript: (text: string) => void) {
-  const recRef = useRef<any>(null);
-  const [listening, setListening] = useState(false);
-
-  const supported = typeof window !== "undefined" &&
-    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
-
-  function start() {
-    if (!supported || listening) return;
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const rec = new SR();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = "en-US";
-
-    let finalTranscript = "";
-    let silenceTimer: ReturnType<typeof setTimeout>;
-
-    rec.onresult = (e: any) => {
-      clearTimeout(silenceTimer);
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          finalTranscript += e.results[i][0].transcript + " ";
-        } else {
-          interim += e.results[i][0].transcript;
-        }
-      }
-      onTranscript(finalTranscript + interim);
-      // Auto-stop after 3s of silence
-      silenceTimer = setTimeout(() => rec.stop(), 3000);
-    };
-
-    rec.onend = () => {
-      setListening(false);
-      clearTimeout(silenceTimer);
-    };
-
-    rec.onerror = () => setListening(false);
-
-    rec.start();
-    recRef.current = rec;
-    setListening(true);
-  }
-
-  function stop() {
-    recRef.current?.stop();
-    setListening(false);
-  }
-
-  useEffect(() => () => recRef.current?.stop(), []);
-
-  return { start, stop, listening, supported };
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function InterviewMode({ repo, powerSignals, onClose }: InterviewModeProps) {
   const [questions, setQuestions] = useState<string[]>([]);
@@ -88,7 +33,39 @@ export default function InterviewMode({ repo, powerSignals, onClose }: Interview
   const [loadingF, setLoadingF] = useState(false);
   const [phase, setPhase] = useState<"intro" | "grilling" | "feedback">("intro");
 
-  const { start, stop, listening, supported } = useSpeechRecognition((text) => setAnswer(text));
+  // ── Whisper hook ────────────────────────────────────────────────────────────
+  const {
+    isModelLoading,
+    modelReady,
+    modelProgress,
+    isListening,
+    isTranscribing,
+    transcript,
+    initModel,
+    startListening,
+    stopListening,
+  } = useWhisper();
+
+  // Auto-initialize the model when the component mounts
+  const initCalledRef = useRef(false);
+  useEffect(() => {
+    if (!initCalledRef.current) {
+      initCalledRef.current = true;
+      initModel();
+    }
+  }, [initModel]);
+
+  // When Whisper returns a transcript, append it to the answer box
+  const lastTranscriptRef = useRef("");
+  useEffect(() => {
+    if (transcript && transcript !== lastTranscriptRef.current) {
+      lastTranscriptRef.current = transcript;
+      setAnswer((prev) => {
+        const separator = prev && !prev.endsWith(" ") ? " " : "";
+        return prev + separator + transcript;
+      });
+    }
+  }, [transcript]);
 
   async function startGrill() {
     setLoadingQ(true);
@@ -111,7 +88,7 @@ export default function InterviewMode({ repo, powerSignals, onClose }: Interview
 
   async function submitAnswer() {
     if (!answer.trim()) return;
-    if (listening) stop();
+    if (isListening) stopListening();
     setLoadingF(true);
     setFeedback(null);
     try {
@@ -134,10 +111,14 @@ export default function InterviewMode({ repo, powerSignals, onClose }: Interview
     if (currentQ < questions.length - 1) {
       setCurrentQ((c) => c + 1);
       setAnswer("");
+      lastTranscriptRef.current = "";
       setFeedback(null);
       setPhase("grilling");
     }
   }
+
+  // Voice button state
+  const voiceDisabled = !modelReady || isTranscribing;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
@@ -160,6 +141,20 @@ export default function InterviewMode({ repo, powerSignals, onClose }: Interview
             <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
+
+        {/* Model loading banner */}
+        {isModelLoading && (
+          <div className="px-6 py-3 border-b border-white/5 bg-purple-500/5 flex items-center gap-3 shrink-0">
+            <svg className="w-4 h-4 animate-spin text-purple-400 shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-purple-300 font-semibold">Downloading Whisper AI model… ({modelProgress}%)</p>
+              <div className="mt-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                <div className="h-full bg-purple-500 rounded-full transition-all duration-300" style={{ width: `${modelProgress}%` }} />
+              </div>
+              <p className="text-[10px] text-zinc-500 mt-1">~40 MB one-time download. Cached for future sessions.</p>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
@@ -189,10 +184,12 @@ export default function InterviewMode({ repo, powerSignals, onClose }: Interview
                 </div>
               )}
 
-              {!supported && (
-                <p className="text-xs text-yellow-500 bg-yellow-500/10 border border-yellow-500/20 px-3 py-2 rounded-lg">
-                  🎙 Voice mode requires Chrome or Edge. Text input is still available.
-                </p>
+              {/* Whisper model status */}
+              {modelReady && (
+                <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-lg">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>
+                  Whisper AI Voice Engine ready — multilingual support enabled
+                </div>
               )}
 
               <button
@@ -227,36 +224,49 @@ export default function InterviewMode({ repo, powerSignals, onClose }: Interview
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Your Answer</label>
                   {/* Voice control */}
-                  {supported && (
-                    <button
-                      onClick={listening ? stop : start}
-                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-semibold transition-all ${
-                        listening
-                          ? "bg-red-500/20 border-red-500/40 text-red-300 animate-pulse"
-                          : "bg-zinc-800 border-white/10 text-zinc-400 hover:text-white"
-                      }`}
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                      {listening ? "Recording... (tap to stop)" : "Speak"}
-                    </button>
-                  )}
+                  <button
+                    onClick={isListening ? stopListening : startListening}
+                    disabled={voiceDisabled}
+                    className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-semibold transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                      isListening
+                        ? "bg-red-500/20 border-red-500/40 text-red-300 animate-pulse"
+                        : "bg-zinc-800 border-white/10 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                    {isListening
+                      ? "⏹ Stop & Transcribe"
+                      : isTranscribing
+                        ? "Transcribing…"
+                        : isModelLoading
+                          ? `Loading (${modelProgress}%)`
+                          : "🎙 Speak"}
+                  </button>
                 </div>
 
                 <div className="relative">
                   <textarea
-                    className={`w-full h-36 px-4 py-3 bg-zinc-950 border rounded-xl focus:outline-none text-sm text-zinc-200 placeholder-zinc-600 font-mono resize-none transition-all ${
-                      listening
+                    className={`w-full h-40 px-4 py-3 bg-zinc-950 border rounded-xl focus:outline-none text-sm text-zinc-200 placeholder-zinc-600 font-mono resize-none transition-all ${
+                      isListening
                         ? "border-red-500/40 focus:ring-2 focus:ring-red-500/30"
-                        : "border-white/5 focus:ring-2 focus:ring-red-500/30"
+                        : isTranscribing
+                          ? "border-purple-500/40 focus:ring-2 focus:ring-purple-500/30"
+                          : "border-white/5 focus:ring-2 focus:ring-red-500/30"
                     }`}
-                    placeholder="Speak or type your answer... (voice auto-stops after 3s of silence)"
+                    placeholder="Speak or type your answer..."
                     value={answer}
                     onChange={(e) => setAnswer(e.target.value)}
                   />
-                  {listening && (
-                    <div className="absolute bottom-3 right-3 flex items-center gap-1">
-                      <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-                      <span className="text-[10px] text-red-400 font-mono">REC</span>
+                  {isListening && (
+                    <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-red-500/10 px-2 py-1 rounded-full border border-red-500/20">
+                      <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />
+                      <span className="text-[9px] text-red-400 font-mono uppercase tracking-widest">Recording</span>
+                    </div>
+                  )}
+                  {isTranscribing && (
+                    <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-purple-500/10 px-2 py-1 rounded-full border border-purple-500/20">
+                      <svg className="w-3 h-3 animate-spin text-purple-400" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                      <span className="text-[9px] text-purple-400 font-mono uppercase tracking-widest">Whisper AI</span>
                     </div>
                   )}
                 </div>
