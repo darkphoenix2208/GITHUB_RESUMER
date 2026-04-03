@@ -97,60 +97,154 @@ export async function matchRepositories(jd: string, repos: any[]) {
 }
 
 
-// Phase 3: LaTeX Generation — Two-Pass (Technical Draft → Humanization)
+// ── Phase 2.5: Deep Codebase Summarization ──────────────────────────────────
+// Takes all fetched file contents and produces a structured technical profile.
+// This compresses ~40KB of source code into ~500 tokens of high-signal context.
+export async function summarizeCodebase(
+  repoName: string,
+  codeSnippets: string[],
+  architecture: string[],
+  languages: Record<string, number>,
+  readme: string | null
+): Promise<string> {
+  if (codeSnippets.length === 0) return "";
+
+  // Separate files by type for the prompt
+  const depFiles = codeSnippets.filter(s => s.includes("[DEPENDENCY]"));
+  const configFiles = codeSnippets.filter(s => s.includes("[CONFIG]"));
+  const entryFiles = codeSnippets.filter(s => s.includes("[ENTRY_POINT]"));
+  const sourceFiles = codeSnippets.filter(s => s.includes("[SOURCE]"));
+
+  const fileTree = architecture.slice(0, 60).join("\n");
+  const langBreakdown = Object.entries(languages)
+    .sort((a, b) => b[1] - a[1])
+    .map(([lang, bytes]) => `${lang}: ${Math.round(bytes / 1024)}KB`)
+    .join(", ");
+
+  const prompt = [
+    `Analyze this GitHub repository "${repoName}" and produce a structured technical profile.`,
+    "",
+    "=== LANGUAGE BREAKDOWN ===",
+    langBreakdown || "No language data",
+    "",
+    "=== FILE TREE (partial) ===",
+    fileTree,
+    "",
+    "=== DEPENDENCY/MANIFEST FILES ===",
+    depFiles.length > 0 ? depFiles.join("\n\n") : "None found",
+    "",
+    "=== CONFIGURATION FILES ===",
+    configFiles.length > 0 ? configFiles.join("\n\n") : "None found",
+    "",
+    "=== ENTRY POINTS / CORE FILES ===",
+    entryFiles.length > 0 ? entryFiles.join("\n\n") : "None found",
+    "",
+    "=== SOURCE CODE SAMPLES ===",
+    sourceFiles.length > 0 ? sourceFiles.join("\n\n") : "None found",
+    "",
+    readme ? `=== README (excerpt) ===\n${readme.substring(0, 1000)}` : "",
+    "",
+    "=== YOUR TASK ===",
+    "Based on ALL the above files, produce a TECHNICAL PROFILE of this project.",
+    "Be specific - name exact libraries, frameworks, algorithms, and patterns you see in the actual code.",
+    "",
+    "Format your response EXACTLY like this (no markdown, just plain text):",
+    "",
+    "TECH STACK: [list every framework, library, and tool found in dependencies and code]",
+    "ARCHITECTURE: [describe the app's architecture: monolith/microservices, API style, data flow]",
+    "KEY PATTERNS: [list specific design patterns, algorithms, and engineering techniques found in source code]",
+    "DATABASE/STORAGE: [databases, caches, file storage, message queues found]",
+    "INFRASTRUCTURE: [CI/CD, containers, cloud services, deployment patterns]",
+    "TESTING: [testing frameworks, test types found]",
+    "COMPLEXITY LEVEL: [toy project / learning project / production-grade / enterprise-grade]",
+    "RESUME ANGLE: [one sentence describing the strongest angle for a resume bullet]",
+    "",
+    "Be concise but specific. Reference actual library names and patterns you see in the code.",
+  ].join("\n");
+
+  try {
+    const result = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 800,
+    });
+    return result.choices[0]?.message?.content || "";
+  } catch (err) {
+    console.error("[summarizeCodebase] Error:", err);
+    return "";
+  }
+}
+
+
+// Phase 3: LaTeX Generation — Three-Pass (Summarize → Draft → Humanize)
 export async function generateResumeBullets(jd: string, matchedRepos: any[]) {
 
-  // Build repo context string
+  // Build repo context string — now includes the technical profile
   const repoContext = matchedRepos.map(r => {
     const signals = (r.metrics?.powerSignals || []).map((s: string) => `    - ${s}`).join("\n") || "    - None detected";
-    const snippets = (r.codeSnippets || []).join("\n");
+    const profile = r.technicalProfile || "";
+
+    // Include key code snippets (entry points + source only, skip dep/config — those are in the profile)
+    const keySnippets = (r.codeSnippets || [])
+      .filter((s: string) => s.includes("[ENTRY_POINT]") || s.includes("[SOURCE]"))
+      .slice(0, 4) // max 4 source excerpts per repo
+      .join("\n");
+
     return [
       `  Repo: ${r.name}`,
       `  Description: ${r.description || "N/A"}`,
       `  Languages: ${Object.keys(r.languages || {}).join(", ")}`,
-      `  Architecture: ${(r.architecture || []).slice(0, 10).join(", ")}`,
-      "  Power Signals (advanced patterns found in code):",
+      `  File Structure: ${(r.architecture || []).slice(0, 15).join(", ")}`,
+      "",
+      "  === DEEP TECHNICAL PROFILE (from full codebase analysis) ===",
+      profile ? "  " + profile.split("\n").join("\n  ") : "  No profile available",
+      "",
+      "  === POWER SIGNALS (patterns detected in source code) ===",
       signals,
-      "  Code Snippets:",
-      snippets,
+      "",
+      "  === KEY SOURCE CODE ===",
+      keySnippets || "  No source code available",
     ].join("\n");
-  }).join("\n---\n");
+  }).join("\n\n===== NEXT REPOSITORY =====\n\n");
 
   // ── PASS 1: Technical Draft ──────────────────────────────────────────────
-  // NOTE: We use String.raw or array join to avoid JS interpreting \r \t \n \b \d \u
-  // as escape sequences inside the LaTeX command names.
   const BS = "\\"; // single literal backslash
 
   const pass1Prompt = [
     "You are an expert Staff Engineer and resume writer.",
-    "Below is a Job Description and matched GitHub repositories with detected technical patterns.",
+    "Below is a Job Description and matched GitHub repositories with DEEP technical analysis.",
+    "The technical profile was generated from analyzing the ENTIRE CODEBASE - dependencies, configs, entry points, and all source files.",
     "",
     "Target Job Description:",
     jd,
     "",
-    "Candidate's Matched Repositories:",
+    "Candidate's Matched Repositories (with full codebase analysis):",
     repoContext,
     "",
     "Task:",
     "Write ATS-optimized resume bullets in RAW LaTeX. 3-4 bullets per repo.",
-    'CRITICALLY: If Power Signals are listed, reference them directly in the bullets (e.g. "Engineered thread-safe buffers using std::mutex and std::condition_variable").',
-    "Use [X]% or [N] placeholders for unknown metrics.",
     "",
-    "IMPORTANT FORMATTING RULES:",
+    "CRITICAL INSTRUCTIONS:",
+    "- Use the DEEP TECHNICAL PROFILE to write bullets that reference SPECIFIC technologies, patterns, and architecture decisions found in the actual code.",
+    "- If the profile mentions specific frameworks (e.g., Next.js, FastAPI, Prisma), NAME THEM in bullets.",
+    "- If the profile mentions architecture patterns (e.g., event-driven, microservices, pub/sub), DESCRIBE THEM.",
+    "- If Power Signals list specific low-level patterns (e.g., lock-free atomics, CUDA kernels), reference those exact patterns.",
+    "- Use [X]% or [N] placeholders for unknown metrics.",
+    "- Every bullet must demonstrate OWNERSHIP - start with action verbs.",
+    "",
+    "FORMATTING RULES:",
     "- Use SINGLE backslash for all LaTeX commands.",
-    "- Do NOT use double backslashes before command names.",
-    "- The ONLY allowed LaTeX commands are these custom resume macros (prefixed with a single backslash):",
-    "  resumeSubheading, resumeItem, resumeItemListStart, resumeItemListEnd",
-    "- Do NOT use any standard LaTeX formatting commands (no bold, italic, underline, href, url, etc.)",
-    "- Each bullet must contain ONLY plain text inside the braces. No nested LaTeX commands.",
-    "- Do NOT include any document preamble, package imports, or document environment wrappers.",
+    "- The ONLY allowed commands: resumeSubheading, resumeItem, resumeItemListStart, resumeItemListEnd",
+    "- Each bullet must contain ONLY plain text. No LaTeX formatting commands.",
+    "- Do NOT include any document preamble or environment wrappers.",
     "",
-    "Output Format (follow this EXACTLY — single backslash before each command):",
+    "Output Format:",
     BS + "resumeSubheading",
     "  {Project Name}{Date}",
     "  {Personal Project | Role}{GitHub}",
     "  " + BS + "resumeItemListStart",
-    "    " + BS + "resumeItem{Plain text bullet point here}",
+    "    " + BS + "resumeItem{Plain text bullet point referencing actual tech from the codebase}",
     "  " + BS + "resumeItemListEnd",
     "",
     "Return ONLY raw LaTeX. No markdown fences, no explanations.",
@@ -160,7 +254,7 @@ export async function generateResumeBullets(jd: string, matchedRepos: any[]) {
     model: "llama-3.3-70b-versatile",
     messages: [{ role: "user", content: pass1Prompt }],
     temperature: 0.35,
-    max_tokens: 2048,
+    max_tokens: 3000,
   });
 
   let draftText = draft.choices[0]?.message?.content || "";
@@ -172,6 +266,11 @@ export async function generateResumeBullets(jd: string, matchedRepos: any[]) {
     .slice(0, 12)
     .map((s: string) => `  - ${s}`)
     .join("\n");
+
+  const techProfileContext = matchedRepos
+    .map((r: any) => r.technicalProfile || "")
+    .filter(Boolean)
+    .join("\n\n");
 
   const pass2Prompt = [
     "You are a Staff-level Engineering Resume Reviewer with 15 years of experience at FAANG and HFT firms.",
@@ -188,14 +287,17 @@ export async function generateResumeBullets(jd: string, matchedRepos: any[]) {
     '- "eliminated", "reduced", "fixed", "optimized", "profiled", "debugged"',
     '- "scaled", "migrated", "refactored", "benchmarked", "integrated"',
     "",
-    "=== ARCHITECTURAL CONTEXT TO INJECT ===",
-    "The code scanner found these specific technical patterns in the actual source code.",
-    "Where relevant, REFERENCE THEM BY NAME in the bullets - this proves technical authenticity:",
+    "=== TECHNICAL CONTEXT FROM CODEBASE ANALYSIS ===",
+    "This is the actual tech stack and architecture found by analyzing the source code.",
+    "Ensure bullets reference these REAL technologies, not generic terms:",
+    techProfileContext || "  No profile available",
+    "",
+    "=== POWER SIGNALS FROM CODE SCANNER ===",
     powerSignalContext || "  - No advanced patterns detected",
     "",
     "=== YOUR REWRITE RULES ===",
     "1. Every bullet MUST start with a past-tense ownership verb (never a noun or article).",
-    "2. At least one bullet per project MUST reference a specific technical mechanism (algorithm, protocol, data structure, or pattern).",
+    "2. At least one bullet per project MUST reference a specific technical mechanism found in the actual codebase analysis above.",
     "3. Numbers and metrics in [brackets] must be preserved exactly - do not remove them.",
     '4. Remove any bullet that starts with "Utilized", "Leveraged", or "Spearheaded" and rewrite it entirely.',
     "5. Keep ALL custom LaTeX macros intact (resumeItem, resumeSubheading, resumeItemListStart, resumeItemListEnd).",
@@ -211,13 +313,12 @@ export async function generateResumeBullets(jd: string, matchedRepos: any[]) {
     model: "llama-3.3-70b-versatile",
     messages: [{ role: "user", content: pass2Prompt }],
     temperature: 0.2,
-    max_tokens: 2048,
+    max_tokens: 3000,
   });
 
   let finalText = humanized.choices[0]?.message?.content || draftText;
 
   // ── Post-processing: normalize LaTeX output ──────────────────────────────
-  // Regex note: In JS regex, a single \\ matches one literal backslash in the string.
   finalText = finalText
     // Strip markdown fences
     .replace(/^```(?:latex)?\n?/gm, "")
@@ -244,3 +345,4 @@ export async function generateResumeBullets(jd: string, matchedRepos: any[]) {
 
   return finalText;
 }
+
